@@ -45,6 +45,11 @@ export class Broker {
 			headers: {
 				"Content-Type": "application/json"
 			},
+			agentOptions: {
+				rejectUnauthorized: false,
+				requestCert: false,
+				agent: false,
+			},
 			strictSSL: false,
 			"auth": this.options.username && this.options.password ? {
 				"user": this.options.username,
