@@ -61,7 +61,10 @@ export class Broker {
 		};
 		console.log(requestOptions);
 		return request(requestOptions)
-			.then((data: any) => data[0])
+			.then((data: any) => {
+				console.log("success: fetch main data" + JSON.stringify(data[0]));
+				return data[0];
+			})
 			.then((response) => {
 				if (response.statusCode < 200 && response.statusCode >= 300) {
 					return q.reject(response);
@@ -71,8 +74,18 @@ export class Broker {
 					uri: body._links[`pb:latest-provider-pacts${tag ? "-with-tag" : ""}`].href.replace("{tag}", tag).replace("{provider}", this.options.provider)
 				}));
 			})
-			.then((data: any) => data[0])
-			.then((response) => response.statusCode < 200 && response.statusCode >= 300 ? q.reject(response) : JSON.parse(response.body));
+			.then((data: any) => {
+				console.log("success: fetch each data" + JSON.stringify(data[0]));
+				return data[0];
+			})
+			.then((response) => {
+				console.log("statusCode:" + response.statusCode);
+				if (response.statusCode < 200 && response.statusCode >= 300) {
+					return q.reject(response);
+				} else {
+					return JSON.parse(response.body);
+				}
+			});
 	}
 
 	// Find all consumers collates all of the pacts for a given provider (with optional tags)
