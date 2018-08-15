@@ -39,6 +39,7 @@ export class Broker {
 	// Find Pacts returns the raw response from the HAL resource
 	public findPacts(tag?: string): q.Promise<any> {
 		logger.debug(`finding pacts for Provider: ${this.options.provider} Tag: ${tag}`);
+		console.log("======> in findPacts");
 		process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 		const requestOptions = {
 			uri: this.options.brokerUrl,
@@ -58,6 +59,7 @@ export class Broker {
 				"password": this.options.password
 			} : null
 		};
+		console.log(requestOptions);
 		return request(requestOptions)
 			.then((data: any) => data[0])
 			.then((response) => {
