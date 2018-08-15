@@ -39,6 +39,7 @@ export class Broker {
 	// Find Pacts returns the raw response from the HAL resource
 	public findPacts(tag?: string): q.Promise<any> {
 		logger.debug(`finding pacts for Provider: ${this.options.provider} Tag: ${tag}`);
+		process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 		const requestOptions = {
 			uri: this.options.brokerUrl,
 			method: "GET",
@@ -51,6 +52,7 @@ export class Broker {
 				agent: false,
 			},
 			strictSSL: false,
+			rejectUnauthorized: false,
 			"auth": this.options.username && this.options.password ? {
 				"user": this.options.username,
 				"password": this.options.password
