@@ -211,11 +211,24 @@ function extract(data: Data): Promise<void> {
 			console.log(chalk.green("Extraction done."));
 		})
 		.then(() => {
-			console.log(chalk.green("Disable SSL verification in ruby script"));
-			const pathRubyScript = data.platformFolderPath + "/lib/app/pact-provider-verifier.rb";
+			console.log(chalk.green("Disable SSL verification in ruby scripts"));
+			const pathRubyScriptProvider = data.platformFolderPath + "/lib/app/pact-provider-verifier.rb";
+			console.log(chalk.green("Will edit "+ pathRubyScriptProvider));
+			const providerRubyFileProvider = fs.readFileSync(pathRubyScriptProvider).toString().split("\n");
+			providerRubyFileProvider.splice(16, 0, "OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE");
+			const providerRubyTextProvider = providerRubyFileProvider.join("\n");
+
+			fs.writeFile(pathRubyScriptProvider, providerRubyTextProvider, (err: any) => {
+				if (err) {
+					console.log(chalk.red(err));
+				}
+				console.log(chalk.green("File has been modified"));
+			});
+
+			const pathRubyScript = data.platformFolderPath + "/lib/app/pact-broker.rb";
 			console.log(chalk.green("Will edit "+ pathRubyScript));
 			const providerRubyFile = fs.readFileSync(pathRubyScript).toString().split("\n");
-			providerRubyFile.splice(16, 0, "OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE");
+			providerRubyFile.splice(2, 0, "OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE");
 			const providerRubyText = providerRubyFile.join("\n");
 
 			fs.writeFile(pathRubyScript, providerRubyText, (err: any) => {
