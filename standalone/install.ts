@@ -16,6 +16,31 @@ const PACT_DEFAULT_LOCATION = `https://github.com/pact-foundation/pact-ruby-stan
 const HTTP_REGEX = /^http(s?):\/\//;
 const CONFIG = createConfig();
 
+const CIs = [
+	"CI",
+	"CONTINUOUS_INTEGRATION",
+	"ABSTRUSE_BUILD_DIR",
+	"APPVEYOR",
+	"BUDDY_WORKSPACE_URL",
+	"BUILDKITE",
+	"CF_BUILD_URL",
+	"CIRCLECI",
+	"CODEBUILD_BUILD_ARN",
+	"CONCOURSE_URL",
+	"DRONE",
+	"GITLAB_CI",
+	"GO_SERVER_URL",
+	"JENKINS_URL",
+	"PROBO_ENVIRONMENT",
+	"SEMAPHORE",
+	"SHIPPABLE",
+	"TDDIUM",
+	"TEAMCITY_VERSION",
+	"TF_BUILD",
+	"TRAVIS",
+	"WERCKER_ROOT",
+];
+
 export function createConfig(): Config {
 	const packageConfig = findPackageConfig(path.resolve(__dirname, "..", ".."));
 	const PACT_BINARY_LOCATION = packageConfig.binaryLocation || PACT_DEFAULT_LOCATION;
@@ -86,11 +111,75 @@ function getBinaryLocation(location: string, basePath: string): string | undefin
 	return HTTP_REGEX.test(location) ? location : path.resolve(basePath, location);
 }
 
+function download(data: Data): Promise<Data> {
+	console.log(chalk.gray(`Installing Pact Standalone Binary for ${data.platform}.`));
+	return new Promise((resolve: (f: Data) => void, reject: (e: string) => void) => {
+		if (fs.existsSync(path.resolve(data.filepath))) {
+			console.log(chalk.yellow("Binary already downloaded, skipping..."));
+			return resolve(data);
+		}
+		console.log(chalk.yellow(`Downloading Pact Standalone Binary v${PACT_STANDALONE_VERSION} for platform ${data.platform} from ${data.binaryDownloadPath}`));
+
+		// Track downloads through Google Analytics unless testing or don't want to be tracked
+		if (!CONFIG.doNotTrack) {
+			console.log(chalk.gray("Please note: we are tracking this download anonymously to gather important usage statistics. " +
+				"To disable tracking, set 'pact_do_not_track: true' in your package.json 'config' section."));
+			// Trying to find all environment variables of all possible CI services to get more accurate stats
+			// but it's still not 100% since not all systems have unique environment variables for their CI server
+			const isCI = CIs.some((key) => process.env[key] !== undefined);
+			request.post({
+				url: "https://www.google-analytics.com/collect",
+				form: {
+					v: 1,
+					tid: "UA-117778936-1", // Tracking ID / Property ID.
+					cid: Math.round(2147483647 * Math.random()).toString(), // Anonymous Client ID.
+					t: "screenview", // Screenview hit type.
+					an: "pact-install", // App name.
+					av: require("../package.json").version, // App version.
+					aid: "pact-node", // App Id.
+					aiid: `standalone-${PACT_STANDALONE_VERSION}`, // App Installer Id.
+					cd: `download-node-${data.platform}-${isCI ? "ci" : "user"}`
+				}
+			}).on("error", () => {
+			}); // Ignore all errors
+		}
+
+		// Get archive of release
+		// If URL, download via HTTP
+		if (HTTP_REGEX.test(data.binaryDownloadPath)) {
+			downloadFileRetry(data.binaryDownloadPath, data.filepath)
+				.then(
+					() => {
+						console.log(chalk.green(`Finished downloading binary to ${data.filepath}`));
+						resolve(data);
+					},
+					(e: string) => reject(`Error downloading binary from ${data.binaryDownloadPath}: ${e}`)
+				);
+		} else if (fs.existsSync(data.binaryDownloadPath)) {
+			// Or else it might be a local file, try to copy it over to the correct directory
+			fs.createReadStream(data.binaryDownloadPath)
+				.on("error", (e: string) => reject(`Error reading the file at '${data.binaryDownloadPath}': ${e}`))
+				.pipe(
+					fs.createWriteStream(data.filepath)
+						.on("error", (e: string) => reject(`Error writing the file to '${data.filepath}': ${e}`))
+						.on("close", () => resolve(data))
+				);
+		} else {
+			reject(`Could not get binary from '${data.binaryDownloadPath}' as it's not a URL and does not exist at the path specified.`);
+		}
+	});
+}
+
 function extract(data: Data): Promise<void> {
 
 	// If platform folder exists, binary already installed, skip to next step.
 	if (fs.existsSync(data.platformFolderPath)) {
 		return Promise.resolve();
+	}
+
+	// Make sure checksum is available
+	if (!fs.existsSync(data.checksumFilepath)) {
+		return Promise.reject(`Checksum file missing from standalone directory. Aborting.`);
 	}
 
 	fs.mkdirSync(data.platformFolderPath);
@@ -99,6 +188,10 @@ function extract(data: Data): Promise<void> {
 	// Validate checksum to make sure it's the correct binary
 	const basename = path.basename(data.filepath);
 	return sumchecker("sha1", data.checksumFilepath, __dirname, basename)
+		.then(
+			() => console.log(chalk.green(`Checksum passed for '${basename}'.`)),
+			() => Promise.reject(`Checksum rejected for file '${basename}' with checksum ${path.basename(data.checksumFilepath)}`)
+		)
 		// Extract files into their platform folder
 		.then(() => data.isWindows ?
 			decompress(data.filepath, data.platformFolderPath, {strip: 1}) :
@@ -116,6 +209,21 @@ function extract(data: Data): Promise<void> {
 				fs.unlinkSync(publishPath);
 			}
 			console.log(chalk.green("Extraction done."));
+		})
+		.then(() => {
+			console.log(chalk.green("Disable SSL verification in ruby script"));
+			const pathRubyScript = data.platformFolderPath + "/lib/app/pact-provider-verifier.rb";
+			console.log(chalk.green("Will edit "+ pathRubyScript));
+			const providerRubyFile = fs.readFileSync(pathRubyScript).toString().split("\n");
+			providerRubyFile.splice(16, 0, "OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE");
+			const providerRubyText = providerRubyFile.join("\n");
+
+			fs.writeFile(pathRubyScript, providerRubyText, (err: any) => {
+				if (err) {
+					console.log(chalk.red(err));
+				}
+				console.log(chalk.green("File has been modified"));
+			});
 		})
 		.then(() => {
 			console.log(
@@ -207,6 +315,7 @@ export function downloadChecksums() {
 
 export default (platform?: string, arch?: string) =>
 	setup(platform, arch)
+		.then((d) => download(d))
 		.then((d) => extract(d))
 		.then(() => console.log(chalk.green("Pact Standalone Binary is ready.")))
 		.catch((e: string) => Promise.reject(`Postinstalled Failed Unexpectedly: ${e}`));
